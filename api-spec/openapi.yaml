@@ -1,0 +1,634 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Nuclear Employee LinkedIn Finder API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: search
+    description: Employee search operations
+  - name: history
+    description: Search history operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /search:
+    post:
+      operationId: searchEmployees
+      tags: [search]
+      summary: Search for employees
+      description: Performs multi-layer search across free sources to find employees at a company with a given job title
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Search results with extracted profiles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /history:
+    get:
+      operationId: getSearchHistory
+      tags: [history]
+      summary: Get search history
+      description: Returns the last N search queries
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: List of past searches
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryResponse"
+
+  /history/{id}:
+    get:
+      operationId: getSearchById
+      tags: [history]
+      summary: Get a specific search result by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Search result details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchHistoryItem"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      operationId: deleteSearch
+      tags: [history]
+      summary: Delete a search from history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /history/clear:
+    delete:
+      operationId: clearHistory
+      tags: [history]
+      summary: Clear all search history
+      responses:
+        "200":
+          description: All history cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /export/{id}:
+    get:
+      operationId: exportSearchResults
+      tags: [search]
+      summary: Export search results as CSV
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /stats:
+    get:
+      operationId: getStats
+      tags: [search]
+      summary: Get search statistics and source breakdown
+      responses:
+        "200":
+          description: Stats overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsResponse"
+
+  /bulk:
+    post:
+      operationId: startBulkSearch
+      tags: [search]
+      summary: Start a bulk search job
+      description: Accepts multiple company+role pairs and runs searches sequentially. Returns a job ID for polling.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkSearchRequest"
+      responses:
+        "200":
+          description: Bulk job started and completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkJobResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    get:
+      operationId: listBulkJobs
+      tags: [search]
+      summary: List past bulk search jobs
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: List of bulk jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkJobListResponse"
+
+  /bulk/{id}:
+    get:
+      operationId: getBulkJob
+      tags: [search]
+      summary: Get a bulk job's results
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Bulk job details with all results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkJobResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      operationId: deleteBulkJob
+      tags: [search]
+      summary: Delete a bulk job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /export/bulk/{id}:
+    get:
+      operationId: exportBulkResults
+      tags: [search]
+      summary: Export all profiles from a bulk job as a single CSV
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: CSV file with all profiles
+          content:
+            text/csv:
+              schema:
+                type: string
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    SearchRequest:
+      type: object
+      properties:
+        company:
+          type: string
+          description: Company name to search
+        jobTitle:
+          type: string
+          description: Job title or role to search for
+        maxResults:
+          type: integer
+          default: 15
+          description: Maximum number of profiles to return
+        sources:
+          type: array
+          items:
+            type: string
+            enum: [duckduckgo, jina, github, serper, brave, company_site]
+          description: Which search sources to use (defaults to all available)
+        apiKeys:
+          $ref: "#/components/schemas/ApiKeys"
+      required:
+        - company
+        - jobTitle
+
+    ApiKeys:
+      type: object
+      description: Optional free-tier API keys to supercharge search
+      properties:
+        serper:
+          type: string
+        groq:
+          type: string
+        exa:
+          type: string
+        firecrawl:
+          type: string
+        brave:
+          type: string
+        jina:
+          type: string
+        tavily:
+          type: string
+
+    Profile:
+      type: object
+      properties:
+        fullName:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        likelyTitle:
+          type: string
+        confidence:
+          type: integer
+          description: Confidence score 0-100
+        source:
+          type: string
+          description: Which source this profile came from
+        linkedinVariations:
+          type: array
+          items:
+            type: string
+          description: Generated LinkedIn URL variations
+        emailVariations:
+          type: array
+          items:
+            type: string
+          description: Generated email variations (if company domain found)
+        companyDomain:
+          type: string
+          description: Discovered company email domain
+        rawSnippet:
+          type: string
+          description: Original text snippet this was extracted from
+      required:
+        - fullName
+        - firstName
+        - lastName
+        - likelyTitle
+        - confidence
+        - source
+        - linkedinVariations
+        - emailVariations
+
+    SearchResponse:
+      type: object
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Profile"
+        totalRawResults:
+          type: integer
+        sourcesUsed:
+          type: array
+          items:
+            type: string
+        companyDomain:
+          type: string
+        searchId:
+          type: integer
+          description: ID of the saved search in history
+        durationMs:
+          type: integer
+      required:
+        - profiles
+        - totalRawResults
+        - sourcesUsed
+        - searchId
+        - durationMs
+
+    SearchHistoryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        company:
+          type: string
+        jobTitle:
+          type: string
+        profileCount:
+          type: integer
+        sourcesUsed:
+          type: array
+          items:
+            type: string
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Profile"
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - company
+        - jobTitle
+        - profileCount
+        - sourcesUsed
+        - profiles
+        - createdAt
+
+    HistoryResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchHistoryItem"
+        total:
+          type: integer
+      required:
+        - items
+        - total
+
+    StatsResponse:
+      type: object
+      properties:
+        totalSearches:
+          type: integer
+        totalProfilesFound:
+          type: integer
+        topCompanies:
+          type: array
+          items:
+            type: object
+            properties:
+              company:
+                type: string
+              count:
+                type: integer
+            required:
+              - company
+              - count
+        sourceBreakdown:
+          type: object
+          additionalProperties:
+            type: integer
+        avgConfidence:
+          type: number
+      required:
+        - totalSearches
+        - totalProfilesFound
+        - topCompanies
+        - sourceBreakdown
+        - avgConfidence
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+        - message
+
+    BulkSearchItem:
+      type: object
+      properties:
+        company:
+          type: string
+        jobTitle:
+          type: string
+      required:
+        - company
+        - jobTitle
+
+    BulkSearchRequest:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkSearchItem"
+          minItems: 1
+          maxItems: 25
+        maxResultsPerSearch:
+          type: integer
+          default: 10
+          description: Max profiles per individual search
+        sources:
+          type: array
+          items:
+            type: string
+        apiKeys:
+          $ref: "#/components/schemas/ApiKeys"
+      required:
+        - items
+
+    BulkJobResultItem:
+      type: object
+      properties:
+        company:
+          type: string
+        jobTitle:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, done, failed]
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Profile"
+        profileCount:
+          type: integer
+        sourcesUsed:
+          type: array
+          items:
+            type: string
+        error:
+          type: string
+        durationMs:
+          type: integer
+      required:
+        - company
+        - jobTitle
+        - status
+        - profiles
+        - profileCount
+        - sourcesUsed
+
+    BulkJobResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          enum: [pending, running, done, failed]
+        totalItems:
+          type: integer
+        completedItems:
+          type: integer
+        totalProfilesFound:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkJobResultItem"
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - status
+        - totalItems
+        - completedItems
+        - totalProfilesFound
+        - results
+        - createdAt
+
+    BulkJobListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkJobResponse"
+        total:
+          type: integer
+      required:
+        - items
+        - total
