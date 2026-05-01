@@ -1,1 +1,0 @@
-{"version":3,"file":"bulkJobListResponse.d.ts","sourceRoot":"","sources":["../../../src/generated/types/bulkJobListResponse.ts"],"names":[],"mappings":"AAAA;;;;;;GAMG;AACH,OAAO,KAAK,EAAE,eAAe,EAAE,MAAM,mBAAmB,CAAC;AAEzD,MAAM,WAAW,mBAAmB;IAClC,KAAK,EAAE,eAAe,EAAE,CAAC;IACzB,KAAK,EAAE,MAAM,CAAC;CACf"}
