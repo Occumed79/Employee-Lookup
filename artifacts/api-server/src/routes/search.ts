@@ -219,6 +219,11 @@ router.get("/history/:id", async (req, res) => {
   });
 });
 
+router.delete("/history/clear", async (req, res) => {
+  await db.delete(searchesTable);
+  res.json({ success: true, message: "All history cleared" });
+});
+
 router.delete("/history/:id", async (req, res) => {
   const id = Number(req.params.id);
   if (!id || isNaN(id)) {
@@ -233,11 +238,6 @@ router.delete("/history/:id", async (req, res) => {
   }
 
   res.json({ success: true });
-});
-
-router.delete("/history/clear", async (req, res) => {
-  await db.delete(searchesTable);
-  res.json({ success: true, message: "All history cleared" });
 });
 
 router.get("/export/:id", async (req, res) => {
