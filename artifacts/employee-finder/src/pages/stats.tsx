@@ -1,14 +1,14 @@
 import { useGetStats } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Cell as PieCell } from "recharts";
-import { Activity, Users, Search, Target, Database } from "lucide-react";
+import { Activity, Users, Search, Target, Database, TrendingUp } from "lucide-react";
 
 const COLORS = [
-  "hsl(217 91% 60%)", // Primary
-  "hsl(190 100% 50%)", // Chart 2
-  "hsl(280 80% 60%)", // Chart 3
-  "hsl(160 80% 40%)", // Chart 4
-  "hsl(340 80% 60%)", // Chart 5
+  "hsl(221 83% 53%)", // Primary Blue
+  "hsl(217 91% 60%)",
+  "hsl(213 94% 68%)",
+  "hsl(210 100% 75%)",
+  "hsl(207 100% 82%)",
 ];
 
 export function Stats() {
@@ -17,9 +17,9 @@ export function Stats() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[50vh]">
-        <div className="relative w-16 h-16 flex items-center justify-center">
-          <div className="absolute inset-0 border-t-2 border-primary rounded-full animate-spin" />
-          <Activity className="w-6 h-6 text-primary animate-pulse" />
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+          <p className="text-sm font-medium text-muted-foreground">Loading analytics...</p>
         </div>
       </div>
     );
@@ -28,81 +28,84 @@ export function Stats() {
   if (!stats) return null;
 
   const sourceData = Object.entries(stats.sourceBreakdown).map(([name, value]) => ({
-    name,
+    name: name.replace("_", " "),
     value,
   }));
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-1 mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">System Telemetry</h1>
-        <p className="text-muted-foreground text-sm">Global metrics and operational analytics.</p>
+    <div className="space-y-8 max-w-5xl mx-auto">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-4xl font-extrabold tracking-tight text-foreground">Analytics</h1>
+        <p className="text-muted-foreground text-lg">Performance metrics and data source utilization.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="border-border/50 bg-card/30">
-          <CardContent className="p-6 flex items-center gap-4">
-            <div className="p-4 bg-primary/10 rounded-lg text-primary">
-              <Search className="w-8 h-8" />
+        <Card className="border-border shadow-sm">
+          <CardContent className="p-6 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Total Searches</span>
+              <Search className="w-5 h-5 text-primary" />
             </div>
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Total Missions</p>
-              <h2 className="text-4xl font-black font-mono mt-1">{stats.totalSearches}</h2>
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-4xl font-bold">{stats.totalSearches}</h2>
+              <span className="text-xs font-medium text-green-600 bg-green-100 px-1.5 py-0.5 rounded">Active</span>
             </div>
           </CardContent>
         </Card>
         
-        <Card className="border-border/50 bg-card/30">
-          <CardContent className="p-6 flex items-center gap-4">
-            <div className="p-4 bg-primary/10 rounded-lg text-primary">
-              <Users className="w-8 h-8" />
+        <Card className="border-border shadow-sm">
+          <CardContent className="p-6 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Profiles Found</span>
+              <Users className="w-5 h-5 text-primary" />
             </div>
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Profiles Extracted</p>
-              <h2 className="text-4xl font-black font-mono mt-1">{stats.totalProfilesFound}</h2>
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-4xl font-bold">{stats.totalProfilesFound}</h2>
+              <span className="text-xs font-medium text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded">Extracted</span>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-border/50 bg-card/30">
-          <CardContent className="p-6 flex items-center gap-4">
-            <div className="p-4 bg-primary/10 rounded-lg text-primary">
-              <Target className="w-8 h-8" />
+        <Card className="border-border shadow-sm">
+          <CardContent className="p-6 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Avg Confidence</span>
+              <Target className="w-5 h-5 text-primary" />
             </div>
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Avg Confidence</p>
-              <h2 className="text-4xl font-black font-mono mt-1">{Math.round(stats.avgConfidence)}%</h2>
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-4xl font-bold">{Math.round(stats.avgConfidence)}%</h2>
+              <span className="text-xs font-medium text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded">Accuracy</span>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="border-border/50 bg-card/30 flex flex-col">
-          <CardHeader className="border-b border-border/50 bg-muted/10">
-            <CardTitle className="text-sm uppercase tracking-wider flex items-center">
-              <Activity className="w-4 h-4 mr-2 text-primary" />
-              Top Target Companies
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <Card className="border-border shadow-sm">
+          <CardHeader className="border-b border-border/50 pb-4">
+            <CardTitle className="text-base font-bold flex items-center">
+              <TrendingUp className="w-5 h-5 mr-2 text-primary" />
+              Top Target Organizations
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-6 flex-1">
-            <div className="h-[300px]">
+          <CardContent className="p-6">
+            <div className="h-[300px] mt-4">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stats.topCompanies} layout="vertical" margin={{ top: 0, right: 0, bottom: 0, left: 40 }}>
+                <BarChart data={stats.topCompanies} layout="vertical" margin={{ top: 0, right: 30, bottom: 0, left: 40 }}>
                   <XAxis type="number" hide />
                   <YAxis 
                     dataKey="company" 
                     type="category" 
                     axisLine={false} 
                     tickLine={false}
-                    tick={{ fill: 'currentColor', fontSize: 12, fontFamily: 'monospace' }}
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12, fontWeight: 500 }}
+                    width={100}
                   />
                   <Tooltip 
-                    cursor={{ fill: 'hsl(var(--muted)/0.5)' }}
-                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
-                    itemStyle={{ color: 'hsl(var(--foreground))', fontFamily: 'monospace' }}
+                    cursor={{ fill: 'hsl(var(--secondary))', opacity: 0.4 }}
+                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                   />
-                  <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={40}>
+                  <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={32}>
                     {stats.topCompanies.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
@@ -113,24 +116,24 @@ export function Stats() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/50 bg-card/30 flex flex-col">
-          <CardHeader className="border-b border-border/50 bg-muted/10">
-            <CardTitle className="text-sm uppercase tracking-wider flex items-center">
-              <Database className="w-4 h-4 mr-2 text-primary" />
-              Source Utilization
+        <Card className="border-border shadow-sm">
+          <CardHeader className="border-b border-border/50 pb-4">
+            <CardTitle className="text-base font-bold flex items-center">
+              <Database className="w-5 h-5 mr-2 text-primary" />
+              Source Distribution
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-6 flex-1 flex flex-col justify-center">
-            <div className="h-[300px]">
+          <CardContent className="p-6">
+            <div className="h-[260px] mt-4">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={sourceData}
                     cx="50%"
                     cy="50%"
-                    innerRadius={80}
-                    outerRadius={110}
-                    paddingAngle={2}
+                    innerRadius={70}
+                    outerRadius={100}
+                    paddingAngle={4}
                     dataKey="value"
                     stroke="none"
                   >
@@ -139,20 +142,22 @@ export function Stats() {
                     ))}
                   </Pie>
                   <Tooltip 
-                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
-                    itemStyle={{ color: 'hsl(var(--foreground))', fontFamily: 'monospace' }}
+                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                   />
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="flex flex-wrap justify-center gap-4 mt-4">
+            <div className="grid grid-cols-2 gap-x-8 gap-y-3 mt-6">
               {sourceData.map((entry, index) => (
-                <div key={entry.name} className="flex items-center text-xs font-mono">
-                  <div 
-                    className="w-3 h-3 rounded-full mr-2" 
-                    style={{ backgroundColor: COLORS[index % COLORS.length] }} 
-                  />
-                  <span className="text-muted-foreground">{entry.name} ({entry.value})</span>
+                <div key={entry.name} className="flex items-center justify-between border-b border-border/50 pb-1">
+                  <div className="flex items-center gap-2">
+                    <div 
+                      className="w-2 h-2 rounded-full" 
+                      style={{ backgroundColor: COLORS[index % COLORS.length] }} 
+                    />
+                    <span className="text-xs font-medium text-muted-foreground capitalize">{entry.name}</span>
+                  </div>
+                  <span className="text-xs font-bold">{entry.value}</span>
                 </div>
               ))}
             </div>

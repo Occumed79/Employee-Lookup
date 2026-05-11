@@ -14,6 +14,9 @@ export interface ApiKeys {
   brave?: string;
   jina?: string;
   tavily?: string;
+  browserless?: string;
+  openrouter?: string;
+  gemini?: string;
 }
 
 const DEFAULT_HEADERS = {
@@ -27,16 +30,30 @@ function sleep(ms: number) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-async function safeFetch(url: string, opts?: RequestInit): Promise<Response | null> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
-    const res = await fetch(url, { ...opts, signal: controller.signal });
-    clearTimeout(timer);
-    return res;
-  } catch {
-    return null;
+async function safeFetch(url: string, opts?: RequestInit, retries = 2): Promise<Response | null> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(url, { ...opts, signal: controller.signal });
+      clearTimeout(timer);
+      
+      if (res.status === 429) {
+        const wait = Math.pow(2, i) * 1000;
+        await sleep(wait);
+        continue;
+      }
+      
+      return res;
+    } catch (err) {
+      if (i === retries) {
+        console.error(`Fetch failed for ${url} after ${retries} retries:`, err);
+        return null;
+      }
+      await sleep(Math.pow(2, i) * 1000);
+    }
   }
+  return null;
 }
 
 export async function searchDuckDuckGo(
@@ -106,6 +123,75 @@ export async function searchJina(
     const text = await res.text().catch(() => "");
     if (text) results.push({ text: text.slice(0, 3000), source: "jina" });
   }
+
+  return results;
+}
+
+export async function searchExa(
+  company: string,
+  jobTitle: string,
+  apiKey: string
+): Promise<RawResult[]> {
+  const res = await safeFetch("https://api.exa.ai/search", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query: `Find employees or the team page for ${company} specifically for the role of ${jobTitle}`,
+      useAutoprompt: true,
+      numResults: 10,
+      contents: { text: true }
+    }),
+  });
+
+  if (!res?.ok) return [];
+
+  const results: RawResult[] = [];
+  try {
+    const data = await res.json() as { results?: { text?: string; url?: string }[] };
+    for (const item of data?.results || []) {
+      if (item.text) {
+        results.push({ text: item.text.slice(0, 1000), url: item.url, source: "exa" });
+      }
+    }
+  } catch {}
+
+  return results;
+}
+
+export async function searchFirecrawl(
+  company: string,
+  jobTitle: string,
+  apiKey: string
+): Promise<RawResult[]> {
+  // First discover domain
+  const domain = await discoverCompanyDomain(company);
+  if (!domain) return [];
+
+  const res = await safeFetch("https://api.firecrawl.dev/v1/scrape", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url: `https://${domain}/team`,
+      formats: ["markdown"],
+      onlyMainContent: true
+    }),
+  });
+
+  if (!res?.ok) return [];
+
+  const results: RawResult[] = [];
+  try {
+    const data = await res.json() as { data?: { markdown?: string } };
+    if (data?.data?.markdown) {
+      results.push({ text: data.data.markdown.slice(0, 5000), url: `https://${domain}/team`, source: "firecrawl" });
+    }
+  } catch {}
 
   return results;
 }
@@ -267,7 +353,8 @@ export async function searchTavily(
 
 export async function scrapeCompanySite(
   company: string,
-  jobTitle: string
+  jobTitle: string,
+  browserlessKey?: string
 ): Promise<{ results: RawResult[]; domain?: string }> {
   const domainGuesses = [
     `${company.toLowerCase().replace(/\s+/g, "")}.com`,
@@ -280,11 +367,26 @@ export async function scrapeCompanySite(
   for (const domain of domainGuesses) {
     for (const path of teamPaths.slice(0, 3)) {
       const url = `https://${domain}${path}`;
-      const res = await safeFetch(url, { headers: DEFAULT_HEADERS });
-      if (!res?.ok) continue;
+      let html = "";
+      if (browserlessKey) {
+        const blUrl = `https://chrome.browserless.io/content?token=${browserlessKey}`;
+        const blRes = await safeFetch(blUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+        });
+        if (blRes?.ok) html = await blRes.text();
+      }
 
-      const html = await res.text();
+      if (!html) {
+        const res = await safeFetch(url, { headers: DEFAULT_HEADERS });
+        if (res?.ok) html = await res.text();
+      }
+
+      if (!html) continue;
+
       const $ = cheerio.load(html);
+      $("script, style, nav, footer, header").remove();
       const bodyText = $("body").text().replace(/\s+/g, " ").trim();
 
       if (bodyText.length > 200) {

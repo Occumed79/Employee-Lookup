@@ -3,18 +3,7 @@ import { z } from "zod";
 import { db } from "@workspace/db";
 import { bulkJobsTable, searchesTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
-import {
-  searchDuckDuckGo,
-  searchJina,
-  searchGitHub,
-  searchSerper,
-  searchBrave,
-  searchTavily,
-  scrapeCompanySite,
-  discoverCompanyDomain,
-} from "../lib/searchEngines.js";
-import { extractProfilesWithAI } from "../lib/profileExtractor.js";
-import type { RawResult } from "../lib/searchEngines.js";
+import { runSingleSearch } from "../lib/searchService.js";
 
 const router = Router();
 
@@ -36,116 +25,12 @@ const BulkSearchRequestSchema = z.object({
       brave: z.string().optional(),
       jina: z.string().optional(),
       tavily: z.string().optional(),
+      browserless: z.string().optional(),
+      openrouter: z.string().optional(),
+      gemini: z.string().optional(),
     })
     .optional(),
 });
-
-async function runSingleSearch(
-  company: string,
-  jobTitle: string,
-  maxResults: number,
-  sources: string[],
-  apiKeys?: Record<string, string>
-) {
-  const startTime = Date.now();
-  const rawResults: RawResult[] = [];
-  const sourcesUsed: string[] = [];
-
-  const searchTasks: Promise<void>[] = [];
-
-  if (sources.includes("duckduckgo")) {
-    searchTasks.push(
-      searchDuckDuckGo(company, jobTitle).then((r) => {
-        if (r.length > 0) { rawResults.push(...r); sourcesUsed.push("duckduckgo"); }
-      })
-    );
-  }
-
-  if (sources.includes("jina")) {
-    searchTasks.push(
-      searchJina(company, jobTitle, apiKeys?.jina).then((r) => {
-        if (r.length > 0) { rawResults.push(...r); sourcesUsed.push("jina"); }
-      })
-    );
-  }
-
-  if (sources.includes("github")) {
-    searchTasks.push(
-      searchGitHub(company, jobTitle).then((r) => {
-        if (r.length > 0) { rawResults.push(...r); sourcesUsed.push("github"); }
-      })
-    );
-  }
-
-  if (sources.includes("serper") && apiKeys?.serper) {
-    searchTasks.push(
-      searchSerper(company, jobTitle, apiKeys.serper).then((r) => {
-        if (r.length > 0) { rawResults.push(...r); sourcesUsed.push("serper"); }
-      })
-    );
-  }
-
-  if (sources.includes("brave") && apiKeys?.brave) {
-    searchTasks.push(
-      searchBrave(company, jobTitle, apiKeys.brave).then((r) => {
-        if (r.length > 0) { rawResults.push(...r); sourcesUsed.push("brave"); }
-      })
-    );
-  }
-
-  if (sources.includes("tavily") && apiKeys?.tavily) {
-    searchTasks.push(
-      searchTavily(company, jobTitle, apiKeys.tavily).then((r) => {
-        if (r.length > 0) { rawResults.push(...r); sourcesUsed.push("tavily"); }
-      })
-    );
-  }
-
-  let companyDomain: string | undefined;
-
-  if (sources.includes("company_site")) {
-    searchTasks.push(
-      (async () => {
-        const [siteResult, domain] = await Promise.all([
-          scrapeCompanySite(company, jobTitle),
-          discoverCompanyDomain(company),
-        ]);
-        if (siteResult.results.length > 0) {
-          rawResults.push(...siteResult.results);
-          sourcesUsed.push("company_site");
-        }
-        companyDomain = siteResult.domain || domain;
-      })()
-    );
-  }
-
-  await Promise.allSettled(searchTasks);
-
-  const profiles = await extractProfilesWithAI(rawResults, company, jobTitle, companyDomain);
-  const limited = profiles.slice(0, maxResults);
-  const durationMs = Date.now() - startTime;
-
-  await db.insert(searchesTable).values({
-    company,
-    jobTitle,
-    profileCount: limited.length,
-    sourcesUsed,
-    profiles: limited as unknown as object[],
-    companyDomain,
-    totalRawResults: rawResults.length,
-    durationMs,
-  });
-
-  return {
-    company,
-    jobTitle,
-    status: "done" as const,
-    profiles: limited,
-    profileCount: limited.length,
-    sourcesUsed,
-    durationMs,
-  };
-}
 
 router.post("/bulk", async (req, res) => {
   const parsed = BulkSearchRequestSchema.safeParse(req.body);
@@ -155,7 +40,6 @@ router.post("/bulk", async (req, res) => {
   }
 
   const { items, maxResultsPerSearch, sources, apiKeys } = parsed.data;
-  const activeSources = sources || ["duckduckgo", "jina", "github", "company_site"];
 
   const [job] = await db
     .insert(bulkJobsTable)
@@ -174,66 +58,77 @@ router.post("/bulk", async (req, res) => {
     })
     .returning();
 
-  const finalResults: object[] = [];
-  let totalProfiles = 0;
-  let completed = 0;
+  // Return job ID immediately to avoid timeouts
+  res.json({ id: job.id, status: "running" });
 
-  for (const item of items) {
-    try {
-      const result = await runSingleSearch(
-        item.company,
-        item.jobTitle,
-        maxResultsPerSearch,
-        activeSources,
-        apiKeys as Record<string, string> | undefined
-      );
-      finalResults.push(result);
-      totalProfiles += result.profileCount;
-    } catch (err) {
-      finalResults.push({
-        company: item.company,
-        jobTitle: item.jobTitle,
-        status: "failed",
-        profiles: [],
-        profileCount: 0,
-        sourcesUsed: [],
-        error: err instanceof Error ? err.message : "Unknown error",
-        durationMs: 0,
-      });
+  // Run the background processing
+  (async () => {
+    const finalResults: object[] = [];
+    let totalProfiles = 0;
+    let completed = 0;
+
+    for (const item of items) {
+      try {
+        const result = await runSingleSearch({
+          company: item.company,
+          jobTitle: item.jobTitle,
+          maxResults: maxResultsPerSearch,
+          sources,
+          apiKeys: apiKeys as Record<string, string> | undefined,
+        });
+
+        // Save individual search to history too
+        await db.insert(searchesTable).values({
+          company: item.company,
+          jobTitle: item.jobTitle,
+          profileCount: result.profileCount,
+          sourcesUsed: result.sourcesUsed,
+          profiles: result.profiles as unknown as object[],
+          companyDomain: result.companyDomain,
+          totalRawResults: result.totalRawResults,
+          durationMs: result.durationMs,
+        });
+
+        finalResults.push({ ...item, ...result, status: "done" });
+        totalProfiles += result.profileCount;
+      } catch (err) {
+        console.error(`Bulk search item failed (${item.company}):`, err);
+        finalResults.push({
+          ...item,
+          status: "failed",
+          profiles: [],
+          profileCount: 0,
+          sourcesUsed: [],
+          error: err instanceof Error ? err.message : "Unknown error",
+          durationMs: 0,
+        });
+      }
+      completed++;
+
+      // Update progress in DB
+      await db
+        .update(bulkJobsTable)
+        .set({
+          completedItems: completed,
+          totalProfilesFound: totalProfiles,
+          results: finalResults as unknown as object[],
+        })
+        .where(eq(bulkJobsTable.id, job.id));
     }
-    completed++;
 
     await db
       .update(bulkJobsTable)
       .set({
-        completedItems: completed,
-        totalProfilesFound: totalProfiles,
-        results: finalResults as unknown as object[],
+        status: "done",
+        completedAt: new Date(),
       })
       .where(eq(bulkJobsTable.id, job.id));
-  }
-
-  const [updated] = await db
-    .update(bulkJobsTable)
-    .set({
-      status: "done",
-      completedItems: items.length,
-      totalProfilesFound: totalProfiles,
-      results: finalResults as unknown as object[],
-      completedAt: new Date(),
-    })
-    .where(eq(bulkJobsTable.id, job.id))
-    .returning();
-
-  res.json({
-    id: updated.id,
-    status: updated.status,
-    totalItems: updated.totalItems,
-    completedItems: updated.completedItems,
-    totalProfilesFound: updated.totalProfilesFound,
-    results: updated.results,
-    createdAt: updated.createdAt,
-    completedAt: updated.completedAt,
+  })().catch(err => {
+    console.error("Bulk background job failed:", err);
+    db.update(bulkJobsTable)
+      .set({ status: "failed" })
+      .where(eq(bulkJobsTable.id, job.id))
+      .catch(console.error);
   });
 });
 

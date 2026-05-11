@@ -23,10 +23,11 @@ export function generateLinkedInVariations(firstName: string, lastName: string):
   return [
     `https://www.linkedin.com/in/${f}-${l}/`,
     `https://www.linkedin.com/in/${f}.${lDot}/`,
-    `https://www.linkedin.com/in/${f[0]}-${l}/`,
     `https://www.linkedin.com/in/${f}${lPlain}/`,
-    `https://www.linkedin.com/in/${f}-${l}-1/`,
     `https://www.linkedin.com/in/${f[0]}${lPlain}/`,
+    `https://www.linkedin.com/in/${f[0]}-${l}/`,
+    `https://www.linkedin.com/in/${f}-${l}-1/`,
+    `https://www.linkedin.com/in/${f}${l}/`,
   ].filter((v, i, arr) => arr.indexOf(v) === i);
 }
 
@@ -40,89 +41,114 @@ export function generateEmailVariations(
 
   return [
     `${f}.${l}@${domain}`,
-    `${f}${l}@${domain}`,
-    `${f}@${domain}`,
     `${f[0]}${l}@${domain}`,
+    `${f}@${domain}`,
+    `${f}${l}@${domain}`,
+    `${f}_${l}@${domain}`,
     `${f[0]}.${l}@${domain}`,
-    `${l}.${f}@${domain}`,
-    `${l}@${domain}`,
+    `${f}${l[0]}@${domain}`,
   ].filter((v, i, arr) => arr.indexOf(v) === i);
 }
 
 function deduplicateProfiles(profiles: ExtractedProfile[]): ExtractedProfile[] {
-  const seen = new Set<string>();
-  return profiles.filter((p) => {
+  const seen = new Map<string, ExtractedProfile>();
+  for (const p of profiles) {
     const key = p.fullName.toLowerCase().trim();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+    const existing = seen.get(key);
+    if (!existing || p.confidence > existing.confidence) {
+      seen.set(key, p);
+    }
+  }
+  return Array.from(seen.values());
+}
+
+async function callOpenRouter(prompt: string, apiKey: string) {
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://manus.im",
+      "X-Title": "Employee Lookup Tool"
+    },
+    body: JSON.stringify({
+      model: "google/gemini-2.0-flash-001",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    })
   });
+  if (!res.ok) throw new Error(`OpenRouter failed: ${await res.text()}`);
+  return await res.json();
+}
+
+async function callGemini(prompt: string, apiKey: string) {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: "application/json" }
+    })
+  });
+  if (!res.ok) throw new Error(`Gemini failed: ${await res.text()}`);
+  const data = await res.json();
+  return JSON.parse(data.candidates[0].content.parts[0].text);
 }
 
 export async function extractProfilesWithAI(
   rawResults: RawResult[],
   company: string,
   jobTitle: string,
-  companyDomain?: string
+  companyDomain?: string,
+  apiKeys?: { openrouter?: string; gemini?: string }
 ): Promise<ExtractedProfile[]> {
   if (rawResults.length === 0) return [];
 
   const combinedText = rawResults
-    .slice(0, 50)
-    .map((r) => `[${r.source}] ${r.text}`)
-    .join("\n")
-    .slice(0, 18000);
+    .slice(0, 60)
+    .map((r, i) => `[Result ${i+1}][Source: ${r.source}] ${r.text}`)
+    .join("\n\n")
+    .slice(0, 25000);
 
-  const prompt = `You are an elite OSINT researcher specializing in finding employees at companies.
+  const prompt = `You are an elite OSINT investigator. Extract CURRENT or RECENT employees at "${company}" for role "${jobTitle}".
+Return ONLY a JSON object with an "employees" array.
 
-Company: "${company}"
-Target role: "${jobTitle}"
+Example:
+{
+  "employees": [
+    {
+      "full_name": "Name",
+      "likely_title": "Specific Title",
+      "confidence": 95,
+      "source": "Source Name",
+      "snippet": "Text snippet..."
+    }
+  ]
+}
 
-From the following search results, extract unique real people who likely work (or worked) at ${company} in or near the role of "${jobTitle}".
-
-Rules:
-- Only include people with reasonable evidence from the text
-- Extract full names (first and last name required)
-- Do NOT invent names — only extract from the text
-- Avoid duplicates
-- If someone appears multiple times, use the highest confidence
-- Ignore job listings — look for actual people's names
-
-For each person, output a valid JSON array like this:
-[
-  {
-    "full_name": "Sarah Chen",
-    "likely_title": "Senior AI Engineer",
-    "confidence": 85,
-    "source": "linkedin",
-    "snippet": "relevant text snippet that confirms this person"
-  }
-]
-
-Only return the JSON array. No explanations. No markdown. If no people found, return [].
-
-Search results:
+Search Data:
 ${combinedText}`;
 
-  let profiles: Array<{
-    full_name: string;
-    likely_title: string;
-    confidence: number;
-    source: string;
-    snippet?: string;
-  }> = [];
+  let profiles: any[] = [];
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.1,
-      max_tokens: 4000,
-    });
-
-    const content = response.choices[0]?.message?.content || "[]";
-    const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    profiles = JSON.parse(cleaned);
+    if (apiKeys?.openrouter) {
+      const data = await callOpenRouter(prompt, apiKeys.openrouter);
+      profiles = data.choices[0].message.content;
+      if (typeof profiles === "string") profiles = JSON.parse(profiles).employees || [];
+    } else if (apiKeys?.gemini) {
+      const data = await callGemini(prompt, apiKeys.gemini);
+      profiles = data.employees || [];
+    } else {
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0,
+        response_format: { type: "json_object" }
+      });
+      const content = response.choices[0]?.message?.content || "{}";
+      profiles = JSON.parse(content).employees || [];
+    }
   } catch (err) {
     console.error("AI extraction failed:", err);
     return [];
@@ -132,7 +158,7 @@ ${combinedText}`;
 
   return deduplicateProfiles(
     profiles
-      .filter((p) => p.full_name && p.full_name.trim().split(/\s+/).length >= 2)
+      .filter((p) => p && p.full_name && p.full_name.trim().split(/\s+/).length >= 2)
       .map((p) => {
         const parts = p.full_name.trim().split(/\s+/);
         const firstName = parts[0];
@@ -144,7 +170,7 @@ ${combinedText}`;
           lastName,
           likelyTitle: p.likely_title || jobTitle,
           confidence: Math.min(100, Math.max(0, Number(p.confidence) || 50)),
-          source: p.source || "unknown",
+          source: p.source || "AI Extraction",
           linkedinVariations: generateLinkedInVariations(firstName, lastName),
           emailVariations: companyDomain
             ? generateEmailVariations(firstName, lastName, companyDomain)
