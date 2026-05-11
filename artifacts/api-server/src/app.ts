@@ -37,7 +37,7 @@ const frontendDistPath = path.join(__dirname, "..", "..", "employee-finder", "di
 app.use(expressStatic(frontendDistPath));
 
 // Catch-all to serve index.html for SPA routing
-app.get("*", (req, res) => {
+app.get("/*", (req, res) => {
   res.sendFile(path.join(frontendDistPath, "index.html"));
 });
 
