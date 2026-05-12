@@ -33,12 +33,20 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api", router);
 
 // Serve static frontend files
-const frontendDistPath = path.join(__dirname, "..", "..", "employee-finder", "dist", "public");
+const frontendDistPath = path.resolve(__dirname, "../../employee-finder/dist/public");
+logger.info({ frontendDistPath }, "Serving static files from");
+
 app.use(expressStatic(frontendDistPath));
 
 // Catch-all to serve index.html for SPA routing
-app.get("*path", (req, res) => {
-  res.sendFile(path.join(frontendDistPath, "index.html"));
+app.get("/:path*", (req, res) => {
+  // Use a more robust catch-all for Express 4.x compatibility
+  res.sendFile(path.join(frontendDistPath, "index.html"), (err) => {
+    if (err) {
+      logger.error({ err, path: req.path }, "Error sending index.html");
+      res.status(404).send("Not Found");
+    }
+  });
 });
 
 export default app;
